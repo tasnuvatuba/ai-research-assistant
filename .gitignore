@@ -1,0 +1,29 @@
+# Python environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables and secrets
+.env
+.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated model files and datasets
+models/
+data/
+outputs/
+
+# OS files
+.DS_Store
