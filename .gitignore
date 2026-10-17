@@ -27,3 +27,9 @@ outputs/
 
 # OS files
 .DS_Store
+
+# Local research papers
+data/papers/
+
+# Generated vector database
+vector_store/
