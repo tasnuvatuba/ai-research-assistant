@@ -8,6 +8,9 @@ def main():
     pipeline = RAGPipeline(top_k=4)
     print("RAG pipeline ready!")
 
+    # Maintain one conversation throughout this terminal session.
+    session_id = "terminal_session"
+
     while True:
         question = input("\nAsk a research question (or type 'exit'): ").strip()
 
@@ -15,12 +18,21 @@ def main():
             print("Goodbye!")
             break
 
+        if question.lower() == "clear":
+            pipeline.clear_history(session_id)
+            print("Conversation history cleared.")
+            continue
+
         if not question:
             print("Please enter a question.")
             continue
 
         try:
-            result = pipeline.answer_question(question)
+            result = pipeline.answer_question(
+                question,
+                session_id=session_id,
+            )
+
 
             print("\n" + "=" * 70)
             print("ANSWER")

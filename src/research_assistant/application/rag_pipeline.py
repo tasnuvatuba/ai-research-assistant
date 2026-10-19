@@ -17,33 +17,128 @@ Rules:
 """
 
 
+CONTEXTUALIZATION_SYSTEM_PROMPT = """
+You are a question contextualization assistant.
+
+Your task is to rewrite the user's latest question as a standalone
+question using the conversation history.
+
+Rules:
+1. Resolve references such as "it", "they", and "that method"
+   using the conversation history.
+2. Preserve the user's intended meaning.
+3. Do not answer the question.
+4. If the question is already understandable independently,
+   return it unchanged.
+5. Return only the rewritten question.
+"""
+
+
+CONTEXTUALIZATION_PROMPT = """
+Conversation history:
+{history}
+
+Latest user question:
+{question}
+
+Rewrite the latest question as a standalone question.
+"""
+
+
 class RAGPipeline:
     """Connect document retrieval with local LLM generation."""
+
 
     def __init__(self, top_k: int = 4):
         self.llm = LocalLLM()
         self.retriever = PaperRetriever()
         self.top_k = top_k
 
-    def answer_question(self, question: str) -> dict:
-        """Retrieve relevant passages and generate an answer."""
+        # Store conversation history separately for each session.
+        self.conversations = {}
+
+
+    def _format_history(self, history: list) -> str:
+        """Format conversation messages into readable text."""
+
+        if not history:
+            return "No previous conversation."
+
+        return "\n".join(
+            f"{message['role'].capitalize()}: {message['content']}"
+            for message in history
+        )
+
+
+    def _contextualize_question(
+        self,
+        question: str,
+        history: list,
+    ) -> str:
+        """Rewrite a follow-up question using conversation history."""
+
+        if not history:
+            return question
+
+        history_text = self._format_history(history)
+
+        prompt = CONTEXTUALIZATION_PROMPT.format(
+            history=history_text,
+            question=question,
+        )
+
+        rewritten_question = self.llm.generate_response(
+            prompt,
+            system_prompt=CONTEXTUALIZATION_SYSTEM_PROMPT,
+            max_new_tokens=100,
+        ).strip()
+
+        # Fall back to the original question if generation is empty.
+        return rewritten_question or question
+
+
+    def answer_question(self, question: str, session_id: str = "default") -> dict:
+        """Retrieve relevant passages and generate a contextual answer."""
 
         if not question.strip():
             raise ValueError("Question cannot be empty.")
 
-        # Step 1: Retrieve relevant passages from the papers.
-        documents = self.retriever.retrieve_documents(
+        # Step 1: Get the conversation history for this session.
+        history = self.conversations.setdefault(session_id, [])
+
+        # Step 2: Contextualize the question.
+        standalone_question = self._contextualize_question(
             question,
+            history,
+        )
+
+        # Step 3: Retrieve relevant passages from the papers.
+        documents = self.retriever.retrieve_documents(
+            standalone_question,
             k=self.top_k,
         )
 
+        # Step 4: Handle the case where no documents are retrieved.
         if not documents:
+            answer = (
+                "I could not find relevant passages in the indexed papers."
+            )
+
+            history.append({
+                "role": "user",
+                "content": question,
+            })
+            history.append({
+                "role": "assistant",
+                "content": answer,
+            })
+
             return {
-                "answer": "I could not find relevant passages in the indexed papers.",
+                "answer": answer,
                 "sources": [],
             }
 
-        # Step 2: Construct context from the retrieved passages.
+        # Step 5: Construct context from the retrieved passages.
         context_parts = []
         sources = []
 
@@ -72,27 +167,57 @@ class RAGPipeline:
 
         context = "\n\n---\n\n".join(context_parts)
 
-        # Step 3: Combine the question and retrieved context.
-        user_prompt = f"""
-            Retrieved context:
+        # Step 6: Build the answer-generation prompt.
+        history_text = self._format_history(history)
 
+        user_prompt = f"""
+            Conversation history:
+            {history_text}
+
+            Retrieved context:
             {context}
 
-            Question:
+            Original user question:
             {question}
 
-            Answer the question using the retrieved context.
+            Contextualized question used for retrieval:
+            {standalone_question}
+
+            Answer the original user question using the retrieved context.
+
+            Use the conversation history to understand the user's intent.
+            Do not treat previous assistant responses as verified evidence.
+
+            If the retrieved context does not contain enough information
+            to answer the question, say so clearly.
             """
 
-        # Step 4: Generate the answer with the local LLM.
+        # Step 7: Generate the answer with the local LLM.
         answer = self.llm.generate_response(
             user_prompt,
             system_prompt=SYSTEM_PROMPT,
             max_new_tokens=300,
         )
 
-        # Step 5: Return the answer and source information.
+        # Step 8: Save the original question and answer.
+        history.append({
+            "role": "user",
+            "content": question,
+        })
+
+        history.append({
+            "role": "assistant",
+            "content": answer,
+        })
+
+        # Step 9: Return the answer and source information.
         return {
             "answer": answer,
             "sources": sources,
         }
+
+
+    def clear_history(self, session_id: str = "default") -> None:
+        """Clear conversation history for a particular session."""
+
+        self.conversations.pop(session_id, None)
