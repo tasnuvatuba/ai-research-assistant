@@ -1,12 +1,14 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
 
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"
+ADAPTER_DIR = "models/researchmate-lora-adapter"
 
 
 class LocalLLM:
-    """Load and run a local Hugging Face language model."""
+    """Load and run a local Hugging Face language model with a LoRA adapter."""
 
     def __init__(self, model_id=MODEL_ID):
         self.model_id = model_id
@@ -14,17 +16,25 @@ class LocalLLM:
         print("Loading tokenizer...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
 
-        print("Loading model...")
-        self.model = AutoModelForCausalLM.from_pretrained(
+        print("Loading base model...")
+        base_model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
-            torch_dtype=torch.float32,
+            dtype=torch.float32,
         )
 
         # Explicitly use the CPU for this project.
+        base_model = base_model.to("cpu")
+
+        print("Loading LoRA adapter...")
+        self.model = PeftModel.from_pretrained(
+            base_model,
+            ADAPTER_DIR,
+        )
+
         self.model = self.model.to("cpu")
         self.model.eval()
 
-        print("Model loaded successfully!")
+        print("Base model and LoRA adapter loaded successfully!")
 
     def generate_response(
         self,

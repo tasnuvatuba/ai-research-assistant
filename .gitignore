@@ -21,7 +21,9 @@ __pycache__/
 htmlcov/
 
 # Generated model files and datasets
-models/
+models/*
+!models/researchmate-lora-adapter/
+!models/researchmate-lora-adapter/**
 data/
 outputs/
 
